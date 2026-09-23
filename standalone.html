@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tetr.js Enhanced — Standalone</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#070707;color:#fff;font:14px system-ui,sans-serif;display:grid;place-items:center}main{display:flex;gap:18px;align-items:flex-start;padding:16px}h1{font-size:18px;margin:0 0 10px;text-align:center}aside{min-width:120px;text-align:center}canvas{display:block;background:#111;border:2px solid #fff;image-rendering:pixelated}#board{width:min(50vh,300px);height:min(100vh - 32px,600px)}.preview{width:120px;height:96px;margin:0 auto 14px;border-color:#555}.stat{border-left:3px solid #fff;text-align:right;padding:4px 8px;margin:5px 0;text-transform:uppercase}.stat b{display:block;font-size:11px;color:#aaa}.stat span{font-size:20px}.help{max-width:170px;color:#aaa;line-height:1.5;text-align:left;font-size:12px;margin-top:14px}.button{border:1px solid #888;background:#111;color:#fff;padding:7px 12px;cursor:pointer}.button:hover{background:#292929}@media(max-width:650px){main{gap:8px;padding:8px}.preview{width:82px;height:66px}aside{min-width:82px}.help{display:none}.stat span{font-size:15px}}
+</style>
+</head>
+<body>
+<main>
+<aside><h1>HOLD</h1><canvas id="hold" class="preview" width="120" height="96"></canvas><div class="stat"><b>Score</b><span id="score">0</span></div><div class="stat"><b>Lines</b><span id="lines">0</span></div><div class="stat"><b>Level</b><span id="level">1</span></div><div class="stat"><b>Pieces</b><span id="pieces">0</span></div></aside>
+<section><canvas id="board" width="300" height="600"></canvas><p id="status" style="text-align:center;min-height:21px">Press Space to start</p><div style="text-align:center"><button class="button" id="new">New game</button></div></section>
+<aside><h1>NEXT</h1><canvas id="next" class="preview" width="120" height="96"></canvas><div class="help">← → Move<br>↓ Soft drop<br>↑ Rotate<br>Z Rotate left<br>Space Hard drop<br>C Hold<br>P Pause<br>R Restart</div></aside>
+</main>
+<script>
+'use strict';
+const W=10,H=20,colors=['','cyan','#2878dc','#e89420','#f5d62b','#45b85b','#a84bc0','#e34848'];
+const shapes=[[[1,1,1,1]],[[1,0,0],[1,1,1]],[[0,0,1],[1,1,1]],[[1,1],[1,1]],[[0,1,1],[1,1,0]],[[0,1,0],[1,1,1]],[[1,1,0],[0,1,1]]];
+const board=document.querySelector('#board'),ctx=board.getContext('2d'),holdCtx=document.querySelector('#hold').getContext('2d'),nextCtx=document.querySelector('#next').getContext('2d');
+let grid,piece,nextBag,held,canHold,score,lines,level,pieceCount,dropTimer,lastTime,running,paused,over;
+function shuffle(a){for(let i=a.length-1;i;i--){let j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
+function nextPiece(){if(!nextBag.length)nextBag=shuffle([0,1,2,3,4,5,6]);return nextBag.pop()}
+function cloneShape(s){return s.map(r=>r.slice())}
+function rotate(s,dir=1){let h=s.length,w=s[0].length,r=Array.from({length:w},()=>Array(h).fill(0));for(let y=0;y<h;y++)for(let x=0;x<w;x++)r[x][dir>0?h-1-y:y]=s[y][x];return r}
+function spawn(type=nextPiece()){piece={type,shape:cloneShape(shapes[type]),x:3,y:0};canHold=true;if(collides(piece))end()}
+function collides(p,dx=0,dy=0,s=p.shape){for(let y=0;y<s.length;y++)for(let x=0;x<s[y].length;x++)if(s[y][x]){let X=p.x+x+dx,Y=p.y+y+dy;if(X<0||X>=W||Y>=H||(Y>=0&&grid[Y][X]))return true}return false}
+function merge(){piece.shape.forEach((r,y)=>r.forEach((v,x)=>{if(v&&piece.y+y>=0)grid[piece.y+y][piece.x+x]=piece.type+1}))}
+function clearLines(){let n=0;grid=grid.filter(r=>{if(r.every(Boolean)){n++;return false}return true});while(grid.length<H)grid.unshift(Array(W).fill(0));if(n){lines+=n;score+=[0,100,300,500,800][n]*level;level=1+(lines/10|0)}}
+function lock(){merge();clearLines();pieceCount++;spawn();updateText()}
+function move(dx){if(!collides(piece,dx,0))piece.x+=dx}
+function drop(){if(!collides(piece,0,1))piece.y++;else lock()}
+function hardDrop(){let d=0;while(!collides(piece,0,1)){piece.y++;d++}score+=d*2;lock()}
+function holdPiece(){if(!canHold)return;let t=held;held=piece.type;canHold=false;if(t===null||t===undefined)spawn();else spawn(t);updateText()}
+function drawCell(c,x,y,size,context){context.fillStyle=colors[c];context.fillRect(x*size,y*size,size-1,size-1);context.fillStyle='rgba(255,255,255,.2)';context.fillRect(x*size,y*size,size-1,Math.max(2,size*.12))}
+function drawMini(context,type){context.clearRect(0,0,context.canvas.width,context.canvas.height);if(type===null||type===undefined)return;let s=shapes[type],z=24,ox=(5-s[0].length)/2,oy=(4-s.length)/2;s.forEach((r,y)=>r.forEach((v,x)=>v&&drawCell(type+1,ox+x,oy+y,z,context)))}
+function draw(){let z=board.width/W;ctx.clearRect(0,0,board.width,board.height);ctx.strokeStyle='#222';for(let x=0;x<=W;x++){ctx.beginPath();ctx.moveTo(x*z,0);ctx.lineTo(x*z,board.height);ctx.stroke()}for(let y=0;y<=H;y++){ctx.beginPath();ctx.moveTo(0,y*z);ctx.lineTo(board.width,y*z);ctx.stroke()}grid.forEach((r,y)=>r.forEach((v,x)=>v&&drawCell(v,x,y,z,ctx)));if(piece&&!over){let ghost={...piece,y:piece.y};while(!collides(ghost,0,1))ghost.y++;piece.shape.forEach((r,y)=>r.forEach((v,x)=>{if(v){ctx.globalAlpha=.2;drawCell(piece.type+1,ghost.x+x,ghost.y+y,z,ctx);ctx.globalAlpha=1;drawCell(piece.type+1,piece.x+x,piece.y+y,z,ctx)}}))}drawMini(holdCtx,held);drawMini(nextCtx,nextBag[nextBag.length-1]??nextPiece())}
+function updateText(){scoreEl.textContent=score.toLocaleString();linesEl.textContent=lines;levelEl.textContent=level;piecesEl.textContent=pieceCount}
+const scoreEl=document.querySelector('#score'),linesEl=document.querySelector('#lines'),levelEl=document.querySelector('#level'),piecesEl=document.querySelector('#pieces'),statusEl=document.querySelector('#status');
+function start(){grid=Array.from({length:H},()=>Array(W).fill(0));nextBag=[];held=null;canHold=true;score=lines=pieceCount=0;level=1;over=false;paused=false;running=true;spawn();updateText();statusEl.textContent='';lastTime=performance.now();requestAnimationFrame(loop)}
+function end(){over=true;running=false;statusEl.textContent='Game over — press R or New game'}
+function loop(t){if(!running)return;if(!paused){let interval=Math.max(70,800-(level-1)*65);if(t-lastTime>interval){drop();lastTime=t}draw()}requestAnimationFrame(loop)}
+addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','z','c','p','r'].includes(e.key))e.preventDefault();if(e.key==='r'||e.key==='R'){start();return}if(!running){if(e.key===' ')start();return}if(e.key==='p'||e.key==='P'){paused=!paused;statusEl.textContent=paused?'Paused':'';return}if(paused||over)return;switch(e.key){case'ArrowLeft':move(-1);break;case'ArrowRight':move(1);break;case'ArrowDown':drop();score++;break;case'ArrowUp':{let s=rotate(piece.shape);if(!collides(piece,0,0,s))piece.shape=s;break}case'z':case'Z':{let s=rotate(rotate(rotate(piece.shape)));if(!collides(piece,0,0,s))piece.shape=s;break}case' ':hardDrop();break;case'c':case'C':holdPiece()}updateText();draw()});document.querySelector('#new').onclick=start;grid=Array.from({length:H},()=>Array(W).fill(0));held=null;nextBag=[];draw();
+</script>
+</body>
+</html>
